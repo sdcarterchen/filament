@@ -161,8 +161,8 @@ private:
 
     math::mat4f getTextureCoordsMapping(math::mat4f const& S) const noexcept;
 
-    float texelSizeWorldSpace(const math::mat4f& lightSpaceMatrix) const noexcept;
-    float texelSizeWorldSpace(const math::mat4f& lightSpaceMatrix, math::float3 const& str) const noexcept;
+    float texelSizeWorldSpace(const math::mat3f& worldToShadowTexture) const noexcept;
+    float texelSizeWorldSpace(const math::mat4f& worldToShadowTexture) const noexcept;
 
     static constexpr const Segment sBoxSegments[12] = {
             { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 },

@@ -271,7 +271,8 @@ void ShadowMap::computeShadowCameraDirectional(
 
     mHasVisibleShadows = vertexCount >= 2;
     if (mHasVisibleShadows) {
-        const bool USE_LISPSM = ENABLE_LISPSM && mEngine.debug.shadowmap.lispsm;
+        // We can't use LISPSM in stable mode
+        const bool USE_LISPSM = ENABLE_LISPSM && mEngine.debug.shadowmap.lispsm && !params.options.stable;
 
         /*
          * Compute the light's model matrix
@@ -372,13 +373,9 @@ void ShadowMap::computeShadowCameraDirectional(
 
         // Compute the LiSPSM warping
         mat4f W;
-        if (params.options.stable) {
-            // We can't use LISPSM in stable mode
-        } else {
-            if (USE_LISPSM) {
-                W = applyLISPSM(camera, params, LMpMv,
-                        mWsClippedShadowReceiverVolume, vertexCount, dir);
-            }
+        if (USE_LISPSM) {
+            W = applyLISPSM(camera, params, LMpMv,
+                    mWsClippedShadowReceiverVolume, vertexCount, dir);
         }
 
         /*
@@ -442,7 +439,7 @@ void ShadowMap::computeShadowCameraDirectional(
         // i.e. it transform a world-space vertex to a texture coordinate in the shadow-map
         const mat4f St = getTextureCoordsMapping(S);
 
-        mTexelSizeWs = texelSizeWorldSpace(St, float3{ 0.5f });
+        mTexelSizeWs = USE_LISPSM ? texelSizeWorldSpace(St) : texelSizeWorldSpace(St.upperLeft());
         mLightSpace = St;
         mSceneRange = (zfar - znear);
         mCamera->setCustomProjection(mat4(S), znear, zfar);
@@ -863,20 +860,26 @@ bool ShadowMap::intersectSegmentWithPlane(float3& UTILS_RESTRICT p,
     return false;
 }
 
-float ShadowMap::texelSizeWorldSpace(const mat4f& lightSpaceMatrix) const noexcept {
-    // this version works only for orthographic projections
-    const mat3f shadowmapToWorldMatrix(inverse(lightSpaceMatrix.upperLeft()));
-    const float3 texelSizeWs = shadowmapToWorldMatrix * float3{ 1, 1, 0 };
-    const float s = length(texelSizeWs) / mShadowMapDimension;
+float ShadowMap::texelSizeWorldSpace(const mat3f& worldToShadowTexture) const noexcept {
+    // The Jacobian of the transformation from texture-to-world is the matrix itself for
+    // orthographic projections. We just need to inverse (i.e. transpose) worldToShadowTexture,
+    // which is guaranteed to be orthographic.
+    // The two first columns give us the how a texel maps in world-space.
+    const mat3f shadowTextureToWorld(transpose(worldToShadowTexture));
+    const float3 Jx = shadowTextureToWorld[0];
+    const float3 Jy = shadowTextureToWorld[1];
+    const float s = std::max(length(Jx), length(Jy)) / mShadowMapDimension;
     return s;
 }
 
-float ShadowMap::texelSizeWorldSpace(const mat4f& lightSpaceMatrix, float3 const& str) const noexcept {
+float ShadowMap::texelSizeWorldSpace(const mat4f& worldToShadowTexture) const noexcept {
     // for non-orthographic projection, the projection of a texel in world-space is not constant
     // therefore we need to specify which texel we want to back-project.
-    const mat4f shadowmapToWorldMatrix(inverse(lightSpaceMatrix));
-    const float3 p0 = mat4f::project(shadowmapToWorldMatrix, str);
-    const float3 p1 = mat4f::project(shadowmapToWorldMatrix, str + float3{ 1, 1, 0 } / mShadowMapDimension);
+    // (however note that it's "more constant" in screen space, b/c that's the goal of warping)
+    const float3 str{ 0.5f };
+    const mat4f shadowTextureToWorld(inverse(worldToShadowTexture));
+    const float3 p0 = mat4f::project(shadowTextureToWorld, str);
+    const float3 p1 = mat4f::project(shadowTextureToWorld, str + float3{ 1, 1, 0 } / mShadowMapDimension);
     const float s = length(p1 - p0);
     return s;
 }
